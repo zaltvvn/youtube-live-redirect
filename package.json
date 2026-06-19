@@ -1,0 +1,13 @@
+{
+  "name": "yt-live-redirect",
+  "version": "1.0.0",
+  "description": "YouTube Live Redirect cho IPTV",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
