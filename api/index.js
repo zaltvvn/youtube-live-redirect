@@ -1,52 +1,36 @@
-import https from 'https';
-
-export default function handler(req, res) {
+export default async function handler(req, res) {
   const channel = req.query.id || 'hasbroOfficial';
-  
-  const options = {
-    hostname: 'www.youtube.com',
-    path: `/@${channel}/live`,
-    method: 'GET',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Cookie': 'CONSENT=YES+cb.20210328-17.p0.en+FX+478;'
-    }
-  };
+  const url = `https://www.youtube.com/@${channel}/live`;
 
-  https.get(options, (youtubeRes) => {
-    // TRƯỜNG HỢP 1: YouTube bắt IP Vercel và chuyển hướng HTTP (302/303)
-    if ([301, 302, 303, 307, 308].includes(youtubeRes.statusCode) && youtubeRes.headers.location) {
-      const loc = youtubeRes.headers.location;
-      // Nếu nó chuyển hướng thẳng vào link video
-      if (loc.includes('/watch?v=')) {
-        return res.redirect(302, loc);
-      }
-    }
-
-    // TRƯỜNG HỢP 2: YouTube trả về mã HTML, tiến hành bóc tách
-    let html = '';
-    youtubeRes.on('data', chunk => html += chunk);
-    youtubeRes.on('end', () => {
-      
-      // Tìm thẻ canonical chứa link watch
-      const canonicalMatch = html.match(/<link rel="canonical" href="(https:\/\/www\.youtube\.com\/watch\?v=[^"]+)">/);
-      if (canonicalMatch && canonicalMatch[1]) {
-        return res.redirect(302, canonicalMatch[1]);
-      }
-
-      // Fallback: Quét sâu vào cấu trúc JSON ẩn của YouTube để tìm trạng thái isLive
-      const videoIdMatch = html.match(/"videoDetails":\{"videoId":"([^"]+)".*?"isLive":true/);
-      if (videoIdMatch && videoIdMatch[1]) {
-        return res.redirect(302, `https://www.youtube.com/watch?v=${videoIdMatch[1]}`);
-      }
-
-      // Trả về 404 kèm thông tin debug nếu kênh thực sự không live
-      res.status(404).send(`Kênh @${channel} không có luồng trực tiếp. (Status Code: ${youtubeRes.statusCode})`);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        // Cookie SOCS mới nhất để vượt qua tường chặn Cookie của Google
+        'Cookie': 'SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg;'
+      },
+      redirect: 'follow'
     });
 
-  }).on('error', (e) => {
-    console.error(e);
-    res.status(500).send('Lỗi kết nối tới YouTube: ' + e.message);
-  });
+    const html = await response.text();
+
+    // Tìm thẻ canonical chứa link watch
+    const canonicalMatch = html.match(/<link rel="canonical" href="(https:\/\/www\.youtube\.com\/watch\?v=[^"]+)">/);
+    
+    if (canonicalMatch && canonicalMatch[1]) {
+      return res.redirect(302, canonicalMatch[1]);
+    }
+
+    // Nếu vẫn không tìm thấy, in toàn bộ mã nguồn ra trình duyệt để Debug
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(404).send(`
+      <h3 style="color:red;">Lỗi 404: Không tìm thấy link Live</h3>
+      <p>IP của Vercel có thể đã bị YouTube bắt xác minh. Dưới đây là mã nguồn HTML thực tế mà YouTube trả về cho Vercel:</p>
+      <textarea style="width:100%; height:500px; background:#f4f4f4;">${html.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+    `);
+
+  } catch (error) {
+    res.status(500).send('Lỗi Server: ' + error.message);
+  }
 }
